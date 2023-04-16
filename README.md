@@ -292,8 +292,78 @@ BCNF
 9. It can help to recruit the providers as needed in all the  fields which most of the customers are intrested.
 10. It also helps to improve the services in those areas where there are lot of orders.
 
+#### Get all the providerId's who belongs to the primary hub 7ece38010a7e156f2d0f0419ad7e685e
+```
+SELECT PROVIDER_ID FROM PROVIDER_DETAILS WHERE PRIMARY_HUB_ID='7ece38010a7e156f2d0f0419ad7e685e'
+```
+
+#### Get the count of the providers who are having "Mens_Grooming" as Primary category
+```
+SELECT COUNT(PROVIDER_ID) FROM PROVIDER_DETAILS WHERE PRIMARY_CATEGORY='Mens_Grooming';
+```
+
+#### Get all the customerId's who took service more than once in our platform
+```
+SELECT CUSTOMER_ID,COUNT(*) AS OrderFrequency FROM CUSTOMER_REQUEST_DETAILS GROUP BY CUSTOMER_ID HAVING COUNT(*)>1;
+```
+
+#### Get the city name and the prime customers count for all the cities having count greater than 1
+```
+SELECT COUNT(*),CITY FROM CUSTOMER_DETAILS  WHERE IS_PRIME='true' GROUP BY CITY HAVING COUNT(*)>1; 
+```
+
+#### Get all the providerIds who are are willing to do more than a dozen jobs per week
+```
+SELECT PROVIDER_ID,(max_jobs_week_days+max_jobs_week_ends) AS "Job Count" FROM PROVIDER_ATTRIBUTES  WHERE (max_jobs_week_days+max_jobs_week_ends)>12
+
+```
+
+
+#### Given the city of the customer and filters applied on the city, apply the filters only if the number of tagged providers in that city is less than 10.Discard all the providers if all filters given by the DBA imposed on the city.Eg: City:Denton filterAppliedOnCity ="AllSkillMatch", "PastPerfomacePercentage", "IsReebookingCustomer", "CustomerRatings"
+```
+create or replace function isRequestServiceble(cityName varchar(50),filterNames text[])
+returns boolean
+language plpgsql
+as
+$$
+declare
+   providersCount integer;
+   elegibleDemographicIds integer;
+begin
+   SELECT COUNT(PH.provider_id) INTO providersCount  FROM provider_hubs PH INNER JOIN HUBS HBS ON PH.hub_id=HBS.hub_id INNER JOIN demographic_locations DL ON HBS.demographic_id=DL.demographic_id WHERE CITY=cityName;
+    SELECT count(A.demographic_id) into elegibleDemographicIds FROM (SELECT DISTINCT(demographic_id) FROM CITY_LEVEL_FILTER WHERE demographic_id IN (SELECT demographic_id FROM demographic_locations WHERE CITY='Denton')) A WHERE  EXISTS(
+SELECT * FROM CITY_LEVEL_FILTER WHERE demographic_id= A.demographic_id AND FILTER_NAME NOT IN ('AllSkillMatch', 'PastPerfomacePercentage', 'IsReebookingCustomer', 'CustomerRatings')
+);
+   return providersCount<10 and elegibleDemographicIds>0 ;
+end;
+$$;
+
+SELECT isRequestServiceble('Denton',ARRAY['AllSkillMatch', 'PastPerfomacePercentage', 'IsReebookingCustomer', 'CustomerRatings'])
+
+
+CREATE OR REPLACE FUNCTION provider_details_insert() RETURNS trigger
+   LANGUAGE plpgsql AS
+   $$
+   declare
+   phub_id VARCHAR(50);
+BEGIN 
+select hub_id into phub_id from hubs where demographic_id in (select T.demographic_id from demographic_locations T  where city=NEW.city) limit 1;
+   NEW.primary_hub_id := phub_id;
+  RAISE NOTICE 'allotted primary hub id is %', NEW.primary_hub_id;
+   RETURN NEW; 
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER provider_primary_hub_before_insert 
+   BEFORE INSERT ON provider_details FOR EACH ROW 
+   EXECUTE PROCEDURE provider_details_insert();
+
+
+```
+
 ### Target Users & Real Life Scenario:
 This database can be used by the authorized product managers and the category managers to identify the best performing providers in a category, and most profitable and selling categories in a city, we can also keep track of customer satisfying by querying the ratings and these results can be used to train the ML models to come up with a efficient filters to discard the bad providers from the organization.
+
 
 
 # ER Diagrams
